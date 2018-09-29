@@ -51,13 +51,17 @@ COPY . "${AV_DEV}"
 #Call Stack (most recent call first):
 #  BLAS/cmake_install.cmake:46 (include)
 #  cmake_install.cmake:72 (include)
-RUN apt-get  install -y --no-install-recommends liblapack-dev libsuitesparse-dev
+RUN apt-get  install -y --no-install-recommends liblapack-dev libsuitesparse-dev libtiff5-dev
 
 WORKDIR "${AV_BUILD}"
 RUN cmake "${AV_DEV}" -DCMAKE_BUILD_TYPE=Release -DALICEVISION_BUILD_DEPENDENCIES:BOOL=ON -DAV_BUILD_LAPACK:BOOL=OFF -DAV_BUILD_SUITESPARSE:BOOL=OFF -DCMAKE_INSTALL_PREFIX="${AV_INSTALL}" -DALICEVISION_BUNDLE_PREFIX="${AV_BUNDLE}"
 
 WORKDIR "${AV_BUILD}"
-RUN make -j${NPROC} install && make bundle
+
+RUN mkdir -p /opt/AliceVision_install/lib && ln -s /usr/lib/x86_64-linux-gnu/libtiff.so /opt/AliceVision_install/lib/libtiff.so
+
+RUN make -j4 install
+RUN make bundle
 # && cd /opt && rm -rf "${AV_BUILD}"
 
 WORKDIR "${AV_BUNDLE}/share/aliceVision"

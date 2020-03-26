@@ -24,13 +24,8 @@ SemiGlobalMatchingParams::SemiGlobalMatchingParams(mvsUtils::MultiViewParams* _m
     mp = _mp;
     prt = new RcTc(mp, cps);
 
-    visualizeDepthMaps = mp->userParams.get<bool>("semiGlobalMatching.visualizeDepthMaps", false);
-    visualizePartialDepthMaps =
-        mp->userParams.get<bool>("semiGlobalMatching.visualizePartialDepthMaps", false);
-
+    exportIntermediateResults = mp->userParams.get<bool>("depthMap.intermediateResults", false);
     doSmooth = mp->userParams.get<bool>("semiGlobalMatching.smooth", true);
-
-
     doRefine = mp->userParams.get<bool>("semiGlobalMatching.doRefine", true);
     refineUseTcOrPixSize = mp->userParams.get<bool>("semiGlobalMatching.refineUseTcOrPixSize", true);
 
@@ -59,7 +54,6 @@ SemiGlobalMatchingParams::SemiGlobalMatchingParams(mvsUtils::MultiViewParams* _m
 
     modalsMapDistLimit = mp->userParams.get<int>("semiGlobalMatching.modalsMapDistLimit", 2);
     minNumOfConsistentCams = mp->userParams.get<int>("semiGlobalMatching.minNumOfConsistentCams", 2);
-    minObjectThickness = mp->userParams.get<int>("semiGlobalMatching.minObjectThickness", 8);
     maxTcRcPixSizeInVoxRatio =
         (float)mp->userParams.get<double>("semiGlobalMatching.maxTcRcPixSizeInVoxRatio", 2.0f);
     nSGGCIters = mp->userParams.get<int>("semiGlobalMatching.nSGGCIters", 0);
@@ -130,7 +124,7 @@ std::string SemiGlobalMatchingParams::getSGM_depthsFileName(IndexT viewId)
 
 DepthSimMap* SemiGlobalMatchingParams::getDepthSimMapFromBestIdVal(int w, int h, StaticVector<IdValue>* volumeBestIdVal,
                                                            int scale, int step, int rc, int zborder,
-                                                           StaticVector<float>* planesDepths)
+                                                           const StaticVector<float>& planesDepths)
 {
     long tall = clock();
 
@@ -148,9 +142,9 @@ DepthSimMap* SemiGlobalMatchingParams::getDepthSimMapFromBestIdVal(int w, int h,
             Pixel pixScale1 = Pixel(pix.x * scale, pix.y * scale);
             float sim = (*volumeBestIdVal)[y * volDimX + x].value;
             int fpdepthId = (*volumeBestIdVal)[y * volDimX + x].id;
-            if((fpdepthId >= zborder) && (fpdepthId < planesDepths->size() - zborder))
+            if((fpdepthId >= zborder) && (fpdepthId < planesDepths.size() - zborder))
             {
-                float fpPlaneDepth = (*planesDepths)[fpdepthId];
+                float fpPlaneDepth = planesDepths[fpdepthId];
                 Point3d planen = (mp->iRArr[rc] * Point3d(0.0f, 0.0f, 1.0f)).normalize();
                 Point3d planep = mp->CArr[rc] + planen * fpPlaneDepth;
                 Point3d v = (mp->iCamArr[rc] * Point2d((float)(pixScale1.x), (float)(pixScale1.y))).normalize();

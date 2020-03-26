@@ -102,10 +102,13 @@ public:
         }
     };
 
+protected:
+    /// Per-vertex color data
+    std::vector<rgb> _colors;
+
 public:
     StaticVector<Point3d>* pts = nullptr;
     StaticVector<Mesh::triangle>* tris = nullptr;
-    Matrix3x4 transformGlobal;
 
     Mesh();
     ~Mesh();
@@ -120,6 +123,11 @@ public:
 
     void addMesh(Mesh* me);
 
+    /// Per-vertex color data const accessor
+    const std::vector<rgb>& colors() const { return _colors; }
+    /// Per-vertex color data accessor
+    std::vector<rgb>& colors() { return _colors; }
+
     StaticVector<StaticVector<int>*>* getTrisMap(const mvsUtils::MultiViewParams* mp, int rc, int scale, int w, int h);
     StaticVector<StaticVector<int>*>* getTrisMap(StaticVector<int>* visTris, const mvsUtils::MultiViewParams* mp, int rc, int scale,
                                                  int w, int h);
@@ -127,8 +135,8 @@ public:
     void getDepthMap(StaticVector<float>* depthMap, StaticVector<StaticVector<int>*>* tmp, const mvsUtils::MultiViewParams* mp, int rc,
                      int scale, int w, int h);
 
-    StaticVector<StaticVector<int>*>* getPtsNeighborTriangles();
-    StaticVector<StaticVector<int>*>* getPtsNeighPtsOrdered();
+    StaticVector<StaticVector<int>*>* getPtsNeighborTriangles() const;
+    StaticVector<StaticVector<int>*>* getPtsNeighPtsOrdered() const;
 
     StaticVector<int>* getVisibleTrianglesIndexes(std::string tmpDir, const mvsUtils::MultiViewParams* mp, int rc, int w, int h);
     StaticVector<int>* getVisibleTrianglesIndexes(std::string depthMapFileName, std::string trisMapFileName,
@@ -142,7 +150,7 @@ public:
     Mesh* generateMeshFromTrianglesSubset(const StaticVector<int> &visTris, StaticVector<int>** out_ptIdToNewPtId) const;
 
     void getNotOrientedEdges(StaticVector<StaticVector<int>*>** edgesNeighTris, StaticVector<Pixel>** edgesPointsPairs);
-    StaticVector<Voxel>* getTrianglesEdgesIds(StaticVector<StaticVector<int>*>* edgesNeighTris);
+    StaticVector<Voxel>* getTrianglesEdgesIds(StaticVector<StaticVector<int>*>* edgesNeighTris) const;
 
     StaticVector<Point3d>* getLaplacianSmoothingVectors(StaticVector<StaticVector<int>*>* ptsNeighPts,
                                                         double maximalNeighDist = -1.0f);
@@ -154,6 +162,7 @@ public:
     Point3d computeTriangleNormal(int idTri);
     Point3d computeTriangleCenterOfGravity(int idTri) const;
     double computeTriangleMaxEdgeLength(int idTri) const;
+    double computeTriangleMinEdgeLength(int idTri) const;
 
     void removeFreePointsFromMesh(StaticVector<int>** out_ptIdToNewPtId = nullptr);
 
@@ -161,15 +170,15 @@ public:
 
     double computeAverageEdgeLength() const;
 
-    bool isTriangleAngleAtVetexObtuse(int vertexIdInTriangle, int triId);
-    bool isTriangleObtuse(int triId);
+    bool isTriangleAngleAtVetexObtuse(int vertexIdInTriangle, int triId) const;
+    bool isTriangleObtuse(int triId) const;
 
 public:
-    double computeTriangleProjectionArea(const triangle_proj& tp);
-    double computeTriangleArea(int idTri);
+    double computeTriangleProjectionArea(const triangle_proj& tp) const;
+    double computeTriangleArea(int idTri) const;
     Mesh::triangle_proj getTriangleProjection(int triid, const mvsUtils::MultiViewParams* mp, int rc, int w, int h) const;
-    bool isTriangleProjectionInImage(const Mesh::triangle_proj& tp, int width, int height, int margin) const;
-    int getTriangleNbVertexInImage(const Mesh::triangle_proj& tp, int width, int height, int margin) const;
+    bool isTriangleProjectionInImage(const mvsUtils::MultiViewParams& mp, const Mesh::triangle_proj& tp, int camId, int margin) const;
+    int getTriangleNbVertexInImage(const mvsUtils::MultiViewParams& mp, const Mesh::triangle_proj& tp, int camId, int margin) const;
     bool doesTriangleIntersectsRectangle(Mesh::triangle_proj* tp, Mesh::rectangle* re);
     StaticVector<Point2d>* getTrianglePixelIntersectionsAndInternalPoints(Mesh::triangle_proj* tp,
                                                                           Mesh::rectangle* re);
@@ -206,10 +215,10 @@ public:
     void filterLargeEdgeTriangles(double cutAverageEdgeLengthFactor);
     void invertTriangleOrientations();
     void changeTriPtId(int triId, int oldPtId, int newPtId);
-    int getTriPtIndex(int triId, int ptId, bool failIfDoesNotExists = true);
-    Pixel getTriOtherPtsIds(int triId, int _ptId);
-    bool areTwoTrisSameOriented(int triId1, int triId2, int edgePtId1, int edgePtId2);
-    StaticVector<int>* getLargestConnectedComponentTrisIds();
+    int getTriPtIndex(int triId, int ptId, bool failIfDoesNotExists = true) const;
+    Pixel getTriOtherPtsIds(int triId, int _ptId) const;
+    bool areTwoTrisSameOriented(int triId1, int triId2, int edgePtId1, int edgePtId2) const;
+    StaticVector<int>* getLargestConnectedComponentTrisIds() const;
 
     bool getEdgeNeighTrisInterval(Pixel& itr, Pixel edge, StaticVector<Voxel>* edgesXStat,
                                   StaticVector<Voxel>* edgesXYStat);

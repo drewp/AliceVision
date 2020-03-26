@@ -39,7 +39,7 @@
 
 // These constants define the current software version.
 // They must be updated when the command line is changed.
-#define ALICEVISION_SOFTWARE_VERSION_MAJOR 1
+#define ALICEVISION_SOFTWARE_VERSION_MAJOR 2
 #define ALICEVISION_SOFTWARE_VERSION_MINOR 0
 
 using namespace aliceVision;
@@ -103,12 +103,12 @@ int main(int argc, char **argv)
   int rangeStart = -1;
   int rangeSize = 0;
   std::string nearestMatchingMethod = "ANN_L2";
-  std::string geometricEstimatorName = robustEstimation::ERobustEstimator_enumToString(robustEstimation::ERobustEstimator::ACRANSAC);
+  robustEstimation::ERobustEstimator geometricEstimator = robustEstimation::ERobustEstimator::ACRANSAC;
   double geometricErrorMax = 0.0; //< the maximum reprojection error allowed for image matching with geometric validation
   bool savePutativeMatches = false;
   bool guidedMatching = false;
   int maxIteration = 2048;
-  bool matchFilePerImage = true;
+  bool matchFilePerImage = false;
   size_t numMatchesToKeep = 0;
   bool useGridSort = true;
   bool exportDebugFiles = false;
@@ -148,12 +148,12 @@ int main(int argc, char **argv)
       "(faster than CASCADE_HASHING_L2 but use more memory)\n"
       "For Binary based descriptor:\n"
       "* BRUTE_FORCE_HAMMING: BruteForce Hamming matching")
-    ("geometricEstimator", po::value<std::string>(&geometricEstimatorName)->default_value(geometricEstimatorName),
+    ("geometricEstimator", po::value<robustEstimation::ERobustEstimator>(&geometricEstimator)->default_value(geometricEstimator),
       "Geometric estimator:\n"
       "* acransac: A-Contrario Ransac\n"
       "* loransac: LO-Ransac (only available for fundamental matrix). Need to set '--geometricError'")
     ("geometricError", po::value<double>(&geometricErrorMax)->default_value(geometricErrorMax), 
-          "Maximum matching error (in pixels) allowed for image matching with geometric verification. "
+          "Maximum error (in pixels) allowed for features matching during geometric verification. "
           "If set to 0 it lets the ACRansac select an optimal value.")
     ("savePutativeMatches", po::value<bool>(&savePutativeMatches)->default_value(savePutativeMatches),
       "Save putative matches.")
@@ -208,8 +208,8 @@ int main(int argc, char **argv)
     return EXIT_FAILURE;
   }
 
-  robustEstimation::ERobustEstimator geometricEstimator = robustEstimation::ERobustEstimator_stringToEnum(geometricEstimatorName);
-  if(!checkRobustEstimator(geometricEstimator, geometricErrorMax))
+  const double defaultLoRansacMatchingError = 20.0;
+  if(!adjustRobustEstimatorThreshold(geometricEstimator, geometricErrorMax, defaultLoRansacMatchingError))
     return EXIT_FAILURE;
 
   ALICEVISION_COUT("Program called with the following parameters:");
@@ -340,6 +340,11 @@ int main(int argc, char **argv)
     }
   }
 
+  // when a range is specified, generate a file prefix to reflect the current iteration (rangeStart/rangeSize)
+  // => with matchFilePerImage: avoids overwriting files if a view is present in several iterations
+  // => without matchFilePerImage: avoids overwriting the unique resulting file
+  const std::string filePrefix = rangeSize > 0 ? std::to_string(rangeStart/rangeSize) + "." : "";
+
   ALICEVISION_LOG_INFO(std::to_string(mapPutativesMatches.size()) << " putative image pair matches");
 
   for(const auto& imageMatch: mapPutativesMatches)
@@ -347,7 +352,7 @@ int main(int argc, char **argv)
 
   // export putative matches
   if(savePutativeMatches)
-    Save(mapPutativesMatches, (fs::path(matchesFolder) / "putativeMatches").string(), fileExtension, matchFilePerImage);
+    Save(mapPutativesMatches, (fs::path(matchesFolder) / "putativeMatches").string(), fileExtension, matchFilePerImage, filePrefix);
 
   ALICEVISION_LOG_INFO("Task (Regions Matching) done in (s): " + std::to_string(timer.elapsed()));
 
@@ -522,7 +527,7 @@ int main(int argc, char **argv)
 
   // export geometric filtered matches
   ALICEVISION_LOG_INFO("Save geometric matches.");
-  Save(finalMatches, matchesFolder, fileExtension, matchFilePerImage);
+  Save(finalMatches, matchesFolder, fileExtension, matchFilePerImage, filePrefix);
   ALICEVISION_LOG_INFO("Task done in (s): " + std::to_string(timer.elapsed()));
 
   // d. Export some statistics

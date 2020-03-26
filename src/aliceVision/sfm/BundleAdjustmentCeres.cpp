@@ -234,8 +234,8 @@ void BundleAdjustmentCeres::Statistics::show() const
                         << "\t    - # constant: " << states[EParameter::INTRINSIC][EParameterState::CONSTANT] << "\n"
                         << "\t    - # ignored:  " << states[EParameter::INTRINSIC][EParameterState::IGNORED]  << "\n"
                         << "\t- # residual blocks: " << nbResidualBlocks << "\n"
-                        << "\t- # successful iterations:  " << nbSuccessfullIterations   << "\n"
-                        << "\t- # unsuccessful iterations:" << nbUnsuccessfullIterations << "\n"
+                        << "\t- # successful iterations: " << nbSuccessfullIterations   << "\n"
+                        << "\t- # unsuccessful iterations: " << nbUnsuccessfullIterations << "\n"
                         << "\t- initial RMSE: " << RMSEinitial << "\n"
                         << "\t- final   RMSE: " << RMSEfinal);
 }
@@ -388,7 +388,11 @@ void BundleAdjustmentCeres::addIntrinsicsToProblem(const sfmData::SfMData& sfmDa
   {
     const IndexT intrinsicId = intrinsicPair.first;
     const auto& intrinsicPtr = intrinsicPair.second;
-    const std::size_t usageCount = intrinsicsUsage.at(intrinsicId);
+    const auto usageIt = intrinsicsUsage.find(intrinsicId);
+    if(usageIt == intrinsicsUsage.end())
+      // if the intrinsic is never referenced by any view, skip it
+      continue;
+    const std::size_t usageCount = usageIt->second;
 
     // do not refine an intrinsic does not used by any reconstructed view
     if(usageCount <= 0 || getIntrinsicState(intrinsicId) == EParameterState::IGNORED)

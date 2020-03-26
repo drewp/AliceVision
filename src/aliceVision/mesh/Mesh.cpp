@@ -43,8 +43,22 @@ void Mesh::saveToObj(const std::string& filename)
   fprintf(f, "# Created with AliceVision\n");
   fprintf(f, "# \n");
   fprintf(f, "g Mesh\n");
-  for(int i = 0; i < pts->size(); i++)
-      fprintf(f, "v %f %f %f\n", (*pts)[i].x, (*pts)[i].y, (*pts)[i].z);
+
+  if(_colors.size() == pts->size())
+  {
+    std::size_t i = 0;
+    for(const auto& point : *pts)
+    {
+      const rgb& col = _colors[i];
+      fprintf(f, "v %f %f %f %f %f %f\n", point.x, point.y, point.z, col.r/255.0f, col.g/255.0f, col.b/255.0f);
+      ++i;
+    }
+  }
+  else
+  {
+    for(const auto& point : *pts)
+      fprintf(f, "v %f %f %f\n", point.x, point.y, point.z);    
+  }
 
   for(int i = 0; i < tris->size(); i++)
   {
@@ -103,85 +117,39 @@ void Mesh::saveToBin(std::string binFileName)
 
 void Mesh::addMesh(Mesh* me)
 {
-    int npts = sizeOfStaticVector<Point3d>(pts);
-    int ntris = sizeOfStaticVector<Mesh::triangle>(tris);
-    int npts1 = sizeOfStaticVector<Point3d>(me->pts);
-    int ntris1 = sizeOfStaticVector<Mesh::triangle>(me->tris);
+    // initialize data members if required
+    if(pts == nullptr)
+      pts = new StaticVector<Point3d>();
 
-    //	printf("pts needed %i of %i allocated\n",npts+npts1,pts->reserved());
-    //	printf("tris needed %i of %i allocated\n",ntris+ntris1,tris->reserved());
+    const std::size_t npts = pts->size();
 
-    if((pts != nullptr) && (tris != nullptr) && (npts + npts1 <= pts->capacity()) &&
-       (ntris + ntris1 <= tris->capacity()))
+    pts->reserveAdd(me->pts->size());
+    std::copy(me->pts->begin(), me->pts->end(), std::back_inserter(pts->getDataWritable()));
+
+    _colors.reserve(_colors.size() + me->_colors.size());
+    std::copy(me->_colors.begin(), me->_colors.end(), std::back_inserter(_colors));
+
+    if(tris == nullptr)
+      tris = new StaticVector<triangle>();
+
+    tris->reserveAdd(me->tris->size());
+    for(int i = 0; i < me->tris->size(); i++)
     {
-        for(int i = 0; i < npts1; i++)
+        Mesh::triangle t = (*me->tris)[i];
+        // check triangles indices validity
+        if(   (t.v[0] >= 0 && t.v[0] < me->pts->size()) 
+           && (t.v[1] >= 0 && t.v[1] < me->pts->size()) 
+           && (t.v[2] >= 0 && t.v[2] < me->pts->size()))
         {
-            pts->push_back((*me->pts)[i]);
+            t.v[0] += npts;
+            t.v[1] += npts;
+            t.v[2] += npts;
+            tris->push_back(t);
         }
-        for(int i = 0; i < ntris1; i++)
+        else
         {
-            Mesh::triangle t = (*me->tris)[i];
-            if((t.v[0] >= 0) && (t.v[0] < npts1) && (t.v[1] >= 0) && (t.v[1] < npts1) && (t.v[2] >= 0) &&
-               (t.v[2] < npts1))
-            {
-                t.v[0] += npts;
-                t.v[1] += npts;
-                t.v[2] += npts;
-                tris->push_back(t);
-            }
-            else
-            {
-                ALICEVISION_LOG_WARNING("addMesh: bad triangle index: " << t.v[0] << " " << t.v[1] << " " << t.v[2] << ", npts: " << npts1);
-            }
+            ALICEVISION_LOG_WARNING("addMesh: bad triangle index: " << t.v[0] << " " << t.v[1] << " " << t.v[2] << ", npts: " << me->pts->size());
         }
-    }
-    else
-    {
-        StaticVector<Point3d>* ptsnew = new StaticVector<Point3d>();
-        ptsnew->reserve(npts + npts1);
-        StaticVector<Mesh::triangle>* trisnew = new StaticVector<Mesh::triangle>();
-        trisnew->reserve(ntris + ntris1);
-
-        for(int i = 0; i < npts; i++)
-        {
-            ptsnew->push_back((*pts)[i]);
-        }
-        for(int i = 0; i < npts1; i++)
-        {
-            ptsnew->push_back((*me->pts)[i]);
-        }
-
-        for(int i = 0; i < ntris; i++)
-        {
-            trisnew->push_back((*tris)[i]);
-        }
-        for(int i = 0; i < ntris1; i++)
-        {
-            Mesh::triangle t = (*me->tris)[i];
-            if((t.v[0] >= 0) && (t.v[0] < npts1) && (t.v[1] >= 0) && (t.v[1] < npts1) && (t.v[2] >= 0) &&
-               (t.v[2] < npts1))
-            {
-                t.v[0] += npts;
-                t.v[1] += npts;
-                t.v[2] += npts;
-                trisnew->push_back(t);
-            }
-            else
-            {
-                ALICEVISION_LOG_WARNING("addMesh: bad triangle index: " << t.v[0] << " " << t.v[1] << " " << t.v[2] << ", npts: " << npts1);
-            }
-        }
-
-        if(pts != nullptr)
-        {
-            delete pts;
-        }
-        if(tris != nullptr)
-        {
-            delete tris;
-        }
-        pts = ptsnew;
-        tris = trisnew;
     }
 }
 
@@ -227,28 +195,17 @@ Mesh::triangle_proj Mesh::getTriangleProjection(int triid, const mvsUtils::Multi
     return tp;
 }
 
-bool Mesh::isTriangleProjectionInImage(const Mesh::triangle_proj& tp, int width, int height, int margin) const
+bool Mesh::isTriangleProjectionInImage(const mvsUtils::MultiViewParams& mp, const Mesh::triangle_proj& tp, int camId, int margin) const
 {
-    int w = width - margin;
-    int h = height - margin;
-    for(int j = 0; j < 3; j++)
-    {
-        if(!((tp.tpixs[j].x > margin) && (tp.tpixs[j].x < w) && (tp.tpixs[j].y > margin) && (tp.tpixs[j].y < h)))
-        {
-            return false;
-        }
-    }
-    return true;
+    return (getTriangleNbVertexInImage(mp, tp, camId, margin) == 3);
 }
 
-int Mesh::getTriangleNbVertexInImage(const Mesh::triangle_proj& tp, int width, int height, int margin) const
+int Mesh::getTriangleNbVertexInImage(const mvsUtils::MultiViewParams& mp, const Mesh::triangle_proj& tp, int camId, int margin) const
 {
     int nbVertexInImage = 0;
-    int w = width - margin;
-    int h = height - margin;
     for (int j = 0; j < 3; j++)
     {
-        if ((tp.tpixs[j].x > margin) && (tp.tpixs[j].x < w) && (tp.tpixs[j].y > margin) && (tp.tpixs[j].y < h))
+        if(mp.isPixelInImage(tp.tpixs[j], camId, margin) && mp.isPixelInSourceImage(tp.tpixs[j], camId, margin))
         {
             ++nbVertexInImage;
         }
@@ -508,7 +465,7 @@ bool Mesh::doesTriangleIntersectsRectangle(Mesh::triangle_proj* tp, Mesh::rectan
     */
 }
 
-StaticVector<StaticVector<int>*>* Mesh::getPtsNeighborTriangles()
+StaticVector<StaticVector<int>*>* Mesh::getPtsNeighborTriangles() const
 {
     // array of tuples <x: vertexIndex, y: triangleIndex, z: numberOfNeighbors>
     StaticVector<Voxel> vertexNeighborhoodPairs;
@@ -566,7 +523,7 @@ StaticVector<StaticVector<int>*>* Mesh::getPtsNeighborTriangles()
     return out_ptsNeighTris;
 }
 
-StaticVector<StaticVector<int>*>* Mesh::getPtsNeighPtsOrdered()
+StaticVector<StaticVector<int>*>* Mesh::getPtsNeighPtsOrdered() const
 {
     StaticVector<StaticVector<int>*>* ptsNeighborTriangles = getPtsNeighborTriangles();
 
@@ -665,7 +622,7 @@ StaticVector<StaticVector<int>*>* Mesh::getTrisMap(const mvsUtils::MultiViewPara
     for(int i = 0; i < tris->size(); i++)
     {
         triangle_proj tp = getTriangleProjection(i, mp, rc, w, h);
-        if((isTriangleProjectionInImage(tp, w, h, 0)))
+        if((isTriangleProjectionInImage(*mp, tp, rc, 0)))
         {
             Pixel pix;
             for(pix.x = tp.lu.x; pix.x <= tp.rd.x; pix.x++)
@@ -705,7 +662,7 @@ StaticVector<StaticVector<int>*>* Mesh::getTrisMap(const mvsUtils::MultiViewPara
     for(int i = 0; i < tris->size(); i++)
     {
         triangle_proj tp = getTriangleProjection(i, mp, rc, w, h);
-        if((isTriangleProjectionInImage(tp, w, h, 0)))
+        if((isTriangleProjectionInImage(*mp, tp, rc, 0)))
         {
             Pixel pix;
             for(pix.x = tp.lu.x; pix.x <= tp.rd.x; pix.x++)
@@ -744,7 +701,7 @@ StaticVector<StaticVector<int>*>* Mesh::getTrisMap(StaticVector<int>* visTris, c
     {
         int i = (*visTris)[m];
         triangle_proj tp = getTriangleProjection(i, mp, rc, w, h);
-        if((isTriangleProjectionInImage(tp, w, h, 0)))
+        if((isTriangleProjectionInImage(*mp, tp, rc, 0)))
         {
             Pixel pix;
             for(pix.x = tp.lu.x; pix.x <= tp.rd.x; pix.x++)
@@ -785,7 +742,7 @@ StaticVector<StaticVector<int>*>* Mesh::getTrisMap(StaticVector<int>* visTris, c
     {
         int i = (*visTris)[m];
         triangle_proj tp = getTriangleProjection(i, mp, rc, w, h);
-        if((isTriangleProjectionInImage(tp, w, h, 0)))
+        if((isTriangleProjectionInImage(*mp, tp, rc, 0)))
         {
             Pixel pix;
             for(pix.x = tp.lu.x; pix.x <= tp.rd.x; pix.x++)
@@ -989,7 +946,7 @@ StaticVector<int>* Mesh::getVisibleTrianglesIndexes(StaticVector<float>* depthMa
         Point3d cg = computeTriangleCenterOfGravity(i);
         Pixel pix;
         mp->getPixelFor3DPoint(&pix, cg, rc);
-        if(mp->isPixelInImage(pix, 1, rc))
+        if(mp->isPixelInImage(pix, rc, 1))
         {
             pix.x = (int)(((float)pix.x / (float)ow) * (float)w);
             pix.y = (int)(((float)pix.y / (float)oh) * (float)h);
@@ -1128,12 +1085,19 @@ Mesh* Mesh::generateMeshFromTrianglesSubset(const StaticVector<int>& visTris, St
 
     outMesh->pts = new StaticVector<Point3d>();
     outMesh->pts->reserve(j);
+    
+    // also update vertex color data if any
+    const bool updateColors = _colors.size() != 0;
+    auto& outColors = outMesh->colors();
+    outColors.reserve(_colors.size());
 
     for(int i = 0; i < pts->size(); i++)
     {
         if(newIndexPerInputPts[i] > -1)
         {
             outMesh->pts->push_back((*pts)[i]);
+            if(updateColors)
+                outColors.push_back(_colors[i]);
         }
     }
 
@@ -1331,6 +1295,13 @@ double Mesh::computeTriangleMaxEdgeLength(int idTri) const
                     ((*pts)[(*tris)[idTri].v[2]] - (*pts)[(*tris)[idTri].v[0]]).size());
 }
 
+double Mesh::computeTriangleMinEdgeLength(int idTri) const
+{
+  return std::min(std::min(((*pts)[(*tris)[idTri].v[0]] - (*pts)[(*tris)[idTri].v[1]]).size(),
+    ((*pts)[(*tris)[idTri].v[1]] - (*pts)[(*tris)[idTri].v[2]]).size()),
+    ((*pts)[(*tris)[idTri].v[2]] - (*pts)[(*tris)[idTri].v[0]]).size());
+}
+
 StaticVector<Point3d>* Mesh::computeNormalsForPts()
 {
     StaticVector<StaticVector<int>*>* ptsNeighTris = getPtsNeighborTriangles();
@@ -1430,11 +1401,12 @@ void Mesh::removeFreePointsFromMesh(StaticVector<int>** out_ptIdToNewPtId)
 
     std::swap(cleanedMesh->pts, pts);
     std::swap(cleanedMesh->tris, tris);
+    std::swap(cleanedMesh->_colors, _colors);
 
     delete cleanedMesh;
 }
 
-double Mesh::computeTriangleProjectionArea(const triangle_proj& tp)
+double Mesh::computeTriangleProjectionArea(const triangle_proj& tp) const
 {
     // return (float)((tp.rd.x-tp.lu.x+1)*(tp.rd.y-tp.lu.y+1));
 
@@ -1453,7 +1425,7 @@ double Mesh::computeTriangleProjectionArea(const triangle_proj& tp)
     //	return  cross(e1,e2).size()/2.0f;
 }
 
-double Mesh::computeTriangleArea(int idTri)
+double Mesh::computeTriangleArea(int idTri) const
 {
     Point3d pa = (*pts)[(*tris)[idTri].v[0]];
     Point3d pb = (*pts)[(*tris)[idTri].v[1]];
@@ -1466,7 +1438,7 @@ double Mesh::computeTriangleArea(int idTri)
     return sqrt(p * (p - a) * (p - b) * (p - c));
 }
 
-StaticVector<Voxel>* Mesh::getTrianglesEdgesIds(StaticVector<StaticVector<int>*>* edgesNeighTris)
+StaticVector<Voxel>* Mesh::getTrianglesEdgesIds(StaticVector<StaticVector<int>*>* edgesNeighTris) const
 {
     StaticVector<Voxel>* out = new StaticVector<Voxel>();
     out->reserve(tris->size());
@@ -2290,7 +2262,7 @@ void Mesh::changeTriPtId(int triId, int oldPtId, int newPtId)
     }
 }
 
-int Mesh::getTriPtIndex(int triId, int ptId, bool failIfDoesNotExists)
+int Mesh::getTriPtIndex(int triId, int ptId, bool failIfDoesNotExists) const
 {
     for(int k = 0; k < 3; k++)
     {
@@ -2307,7 +2279,7 @@ int Mesh::getTriPtIndex(int triId, int ptId, bool failIfDoesNotExists)
     return -1;
 }
 
-Pixel Mesh::getTriOtherPtsIds(int triId, int _ptId)
+Pixel Mesh::getTriOtherPtsIds(int triId, int _ptId) const
 {
     int others[3];
     int nothers = 0;
@@ -2327,7 +2299,7 @@ Pixel Mesh::getTriOtherPtsIds(int triId, int _ptId)
 
     return Pixel(others[0], others[1]);
 }
-bool Mesh::areTwoTrisSameOriented(int triId1, int triId2, int edgePtId1, int edgePtId2)
+bool Mesh::areTwoTrisSameOriented(int triId1, int triId2, int edgePtId1, int edgePtId2) const
 {
     int t1ep1Index = getTriPtIndex(triId1, edgePtId1, true);
     int t1ep2Index = getTriPtIndex(triId1, edgePtId2, true);
@@ -2339,7 +2311,7 @@ bool Mesh::areTwoTrisSameOriented(int triId1, int triId2, int edgePtId1, int edg
     return (t1Orientation != t2Orientation);
 }
 
-bool Mesh::isTriangleAngleAtVetexObtuse(int vertexIdInTriangle, int triId)
+bool Mesh::isTriangleAngleAtVetexObtuse(int vertexIdInTriangle, int triId) const
 {
     Point3d A = (*pts)[(*tris)[triId].v[(vertexIdInTriangle + 0) % 3]];
     Point3d B = (*pts)[(*tris)[triId].v[(vertexIdInTriangle + 1) % 3]];
@@ -2347,19 +2319,19 @@ bool Mesh::isTriangleAngleAtVetexObtuse(int vertexIdInTriangle, int triId)
     return dot(B - A, C - A) < 0.0f;
 }
 
-bool Mesh::isTriangleObtuse(int triId)
+bool Mesh::isTriangleObtuse(int triId) const
 {
     return (isTriangleAngleAtVetexObtuse(0, triId)) || (isTriangleAngleAtVetexObtuse(1, triId)) ||
            (isTriangleAngleAtVetexObtuse(2, triId));
 }
 
-StaticVector<int>* Mesh::getLargestConnectedComponentTrisIds()
+StaticVector<int>* Mesh::getLargestConnectedComponentTrisIds() const
 {
     StaticVector<StaticVector<int>*>* ptsNeighPtsOrdered = getPtsNeighPtsOrdered();
 
-    StaticVector<int>* colors = new StaticVector<int>();
-    colors->reserve(pts->size());
-    colors->resize_with(pts->size(), -1);
+    StaticVector<int>* colorLabels = new StaticVector<int>();
+    colorLabels->reserve(pts->size());
+    colorLabels->resize_with(pts->size(), -1);
     StaticVector<int>* buff = new StaticVector<int>();
     buff->reserve(pts->size());
     int col = 0;
@@ -2367,7 +2339,7 @@ StaticVector<int>* Mesh::getLargestConnectedComponentTrisIds()
     int bestCol = -1;
     for(int i = 0; i < pts->size(); ++i)
     {
-        if((*colors)[i] != -1) // already labelled with a color id
+        if((*colorLabels)[i] != -1) // already labelled with a color id
             continue;
 
         buff->resize(0);
@@ -2376,16 +2348,16 @@ StaticVector<int>* Mesh::getLargestConnectedComponentTrisIds()
         while(buff->size() > 0)
         {
             int ptid = buff->pop();
-            if((*colors)[ptid] == -1)
+            if((*colorLabels)[ptid] == -1)
             {
-                (*colors)[ptid] = col;
+                (*colorLabels)[ptid] = col;
                 ++nptsOfCol;
             }
             else
             {
-                if((*colors)[ptid] != col)
+                if((*colorLabels)[ptid] != col)
                 {
-                    delete colors;
+                    delete colorLabels;
                     delete buff;
                     deleteArrayOfArrays<int>(&ptsNeighPtsOrdered);
                     throw std::runtime_error("getLargestConnectedComponentTrisIds: bad condition.");
@@ -2394,7 +2366,7 @@ StaticVector<int>* Mesh::getLargestConnectedComponentTrisIds()
             for(int j = 0; j < sizeOfStaticVector<int>((*ptsNeighPtsOrdered)[ptid]); ++j)
             {
                 int nptid = (*(*ptsNeighPtsOrdered)[ptid])[j];
-                if((nptid > -1) && ((*colors)[nptid] == -1))
+                if((nptid > -1) && ((*colorLabels)[nptid] == -1))
                 {
                     if(buff->size() >= buff->capacity()) // should not happen but no problem
                     {
@@ -2419,15 +2391,15 @@ StaticVector<int>* Mesh::getLargestConnectedComponentTrisIds()
     for(int i = 0; i < tris->size(); i++)
     {
         if(((*tris)[i].alive) &&
-           ((*colors)[(*tris)[i].v[0]] == bestCol) &&
-           ((*colors)[(*tris)[i].v[1]] == bestCol) &&
-           ((*colors)[(*tris)[i].v[2]] == bestCol))
+           ((*colorLabels)[(*tris)[i].v[0]] == bestCol) &&
+           ((*colorLabels)[(*tris)[i].v[1]] == bestCol) &&
+           ((*colorLabels)[(*tris)[i].v[2]] == bestCol))
         {
             out->push_back(i);
         }
     }
 
-    delete colors;
+    delete colorLabels;
     delete buff;
     deleteArrayOfArrays<int>(&ptsNeighPtsOrdered);
 
@@ -2445,6 +2417,7 @@ bool Mesh::loadFromObjAscii(int& nmtls, StaticVector<int>& trisMtlIds, StaticVec
     int nuvs = 0;
     int nnorms = 0;
     int nlines = 0;
+    bool useColors = false;
 
     {
         std::ifstream in(objAsciiFileName.c_str());
@@ -2453,6 +2426,10 @@ bool Mesh::loadFromObjAscii(int& nmtls, StaticVector<int>& trisMtlIds, StaticVec
         {
             if((line[0] == 'v') && (line[1] == ' '))
             {
+                if(npts == 0)
+                {
+                  useColors = mvsUtils::findNSubstrsInString(line, ".") == 6;
+                }
                 npts += 1;
             }
             if((line[0] == 'v') && (line[1] == 'n') && (line[2] == ' '))
@@ -2496,6 +2473,10 @@ bool Mesh::loadFromObjAscii(int& nmtls, StaticVector<int>& trisMtlIds, StaticVec
     normals.reserve(nnorms);
     trisNormalsIds.reserve(ntris);
     trisMtlIds.reserve(ntris);
+    if(useColors)
+    {
+        _colors.reserve(npts);
+    }
 
     std::map<std::string, int> materialCache;
 
@@ -2525,7 +2506,21 @@ bool Mesh::loadFromObjAscii(int& nmtls, StaticVector<int>& trisMtlIds, StaticVec
             else if((line[0] == 'v') && (line[1] == ' '))
             {
                 Point3d pt;
-                sscanf(line.c_str(), "v %lf %lf %lf", &pt.x, &pt.y, &pt.z);
+                if(useColors)
+                {
+                    float r, g, b;
+                    sscanf(line.c_str(), "v %lf %lf %lf %f %f %f", &pt.x, &pt.y, &pt.z, &r, &g, &b);
+                    // convert float color data to uchar
+                    _colors.emplace_back(
+                      static_cast<unsigned char>(r*255.0f),
+                      static_cast<unsigned char>(g*255.0f),
+                      static_cast<unsigned char>(b*255.0f)
+                    );
+                }
+                else
+                {
+                    sscanf(line.c_str(), "v %lf %lf %lf", &pt.x, &pt.y, &pt.z);
+                }
                 pts->push_back(pt);
             }
             else if((line[0] == 'v') && (line[1] == 'n') && (line[2] == ' '))
